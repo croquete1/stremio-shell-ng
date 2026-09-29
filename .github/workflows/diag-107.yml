@@ -61,14 +61,24 @@ jobs:
           "{`"version`":`"5.0.26`",`"files`":[{`"url`":`"http://127.0.0.1:8001/StremioSetup-v5.0.26_x64.exe`",`"checksum`":`"$hash`",`"os`":`"windows`"}]}" | Set-Content C:\diag\upd\desc.json
           Get-Content C:\diag\upd\desc.json
           Add-Type -OutputAssembly C:\diag\m3uprobe.exe -OutputType ConsoleApplication -TypeDefinition 'public static class P { public static void Main() { System.Threading.Thread.Sleep(30000); } }'
-          New-Item -Force 'HKCU:\Software\Classes\.m3u' -Value 'Diag.m3u' | Out-Null
-          New-Item -Force 'HKCU:\Software\Classes\Diag.m3u\shell\open\command' -Value '"C:\diag\m3uprobe.exe" "%1"' | Out-Null
       - name: Integrity matrix
         shell: powershell
         run: |
           $server = Start-Process python -ArgumentList '-m','http.server','8001','--directory','C:\diag\upd' -PassThru -WindowStyle Hidden
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File diag107\run.ps1 -Setup C:\diag\upd\StremioSetup-v5.0.26_x64.exe -DevApp C:\devapp
+          $node = (Get-Command node).Source
+          # Disposable standard (non-admin) user: its processes carry a genuine Medium token.
+          $password = [guid]::NewGuid().ToString('N') + 'Aa1!'
+          net user diagstd $password /add /y | Out-Null
+          Copy-Item -Recurse "$env:GITHUB_WORKSPACE\diag107" C:\diag\scripts
+          icacls C:\diag /grant 'Users:(OI)(CI)M' /T /Q | Out-Null
+          icacls C:\devapp /grant 'Users:(OI)(CI)M' /T /Q | Out-Null
+          $credential = New-Object System.Management.Automation.PSCredential('diagstd', (ConvertTo-SecureString $password -AsPlainText -Force))
+          $std = Start-Process powershell.exe -Credential $credential -LoadUserProfile -WorkingDirectory C:\diag -PassThru -Wait -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\diag\scripts\run.ps1', '-Setup', 'C:\diag\upd\StremioSetup-v5.0.26_x64.exe', '-DevApp', 'C:\devapp', '-Node', $node)
+          "standard-user driver exit code: $($std.ExitCode)"
+          $exe = 'C:\Users\diagstd\AppData\Local\Programs\Stremio\stremio-shell-ng.exe'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\diag\scripts\control.ps1 -Exe $exe -DevApp C:\devapp -Node $node
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          Get-Content C:\diag\report.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
