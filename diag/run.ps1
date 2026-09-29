@@ -14,6 +14,23 @@ public static class Win {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    public delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    public static IntPtr Find(uint pid) {
+        IntPtr best = IntPtr.Zero; long bestArea = 0;
+        EnumWindows((h, l) => {
+            uint p; GetWindowThreadProcessId(h, out p);
+            RECT r;
+            if (p == pid && IsWindowVisible(h) && GetWindowRect(h, out r)) {
+                long area = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
+                if (area > bestArea) { bestArea = area; best = h; }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return best;
+    }
     public static void Shot(string path) {
         var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
         using (var bmp = new Bitmap(b.Width, b.Height)) {
@@ -47,14 +64,15 @@ if ($Surface -eq 'links') {
     node diag\cdp.mjs picker $Srt | Tee-Object -Append "$out\steps.txt"
     Start-Sleep 6
 } else {
-    $shell.Refresh()
-    $hwnd = $shell.MainWindowHandle
+    $hwnd = [Win]::Find([uint32]$shell.Id)
     $rect = New-Object Win+RECT
     [Win]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
     [Win]::SetForegroundWindow($hwnd) | Out-Null
     $x = [int](($rect.Left + $rect.Right) / 2); $y = [int](($rect.Top + $rect.Bottom) / 2)
     "window rect=$($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom) drop=$x,$y" | Tee-Object -Append "$out\steps.txt"
-    powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File diag\drag.ps1 -File $Srt -X $x -Y $y | Tee-Object -Append "$out\steps.txt"
+    $drag = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', 'diag\drag.ps1', '-File', "`"$Srt`"", '-X', $x, '-Y', $y) -PassThru -NoNewWindow -RedirectStandardOutput "$out\drag.txt"
+    if (-not $drag.WaitForExit(45000)) { $drag.Kill(); 'drag helper timed out' | Tee-Object -Append "$out\steps.txt" }
+    Get-Content "$out\drag.txt" -ErrorAction SilentlyContinue | Tee-Object -Append "$out\steps.txt"
     Start-Sleep 6
 }
 

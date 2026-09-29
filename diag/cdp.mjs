@@ -4,14 +4,17 @@ const [, , cmd, arg] = process.argv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let target;
+let lastError = '';
+let pages = [];
 for (let i = 0; i < 300 && !target; i++) {
     try {
         const list = await (await fetch('http://127.0.0.1:9333/json/list', { signal: AbortSignal.timeout(2000) })).json();
+        pages = list.map((t) => t.type + ' ' + t.url.slice(0, 60));
         target = list.find((t) => t.type === 'page' && /^https:\/\/web\.stremio\.com\//.test(t.url) && t.webSocketDebuggerUrl);
-    } catch (_) { /* not ready */ }
+    } catch (error) { lastError = String(error && error.cause ? error.cause.code || error.cause : error); }
     if (!target) await sleep(200);
 }
-if (!target) { console.log('NO_TARGET'); process.exit(1); }
+if (!target) { console.log('NO_TARGET last=' + lastError + ' pages=' + JSON.stringify(pages)); process.exit(1); }
 if (cmd === 'wait') { console.log('target ' + target.url); process.exit(0); }
 
 const ws = new WebSocket(target.webSocketDebuggerUrl);
