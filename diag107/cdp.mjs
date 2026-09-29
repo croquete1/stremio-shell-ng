@@ -11,7 +11,8 @@ for (let i = 0; i < 300 && !target; i++) {
 if (!target) { console.log('NO_TARGET'); process.exit(1); }
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res) => { ws.onopen = res; });
-const args = process.argv[2];
-ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id === 1) { console.log('sent ' + args + ' -> ' + JSON.stringify(m.result && m.result.result && m.result.result.value)); ws.close(); process.exit(0); } };
-ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: `(() => { window.chrome.webview.postMessage(JSON.stringify({ id: 99, type: 6, args: ${args} })); return 'ok'; })()`, returnByValue: true } }));
+// Arguments arrive base64-encoded (Windows PowerShell 5.1 strips quotes from native arguments).
+const args = Buffer.from(process.argv[2], 'base64').toString('utf8');
+ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id === 1) { console.log('sent ' + args.slice(0, 60) + ' -> ' + JSON.stringify(m).slice(0, 400)); ws.close(); process.exit(0); } };
+ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: `(() => { try { const message = JSON.stringify({ id: 99, type: 6, args: ${args} }); window.chrome.webview.postMessage(message); return 'posted ' + message.length + ' url=' + location.href.slice(0, 60); } catch (error) { return 'error ' + error; } })()`, returnByValue: true } }));
 setTimeout(() => { console.log('timeout'); process.exit(1); }, 10000);

@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Continue'
 . "$PSScriptRoot\tok.ps1"
 $report = 'C:\diag\report.txt'
 function Log([string]$line) { $line | Tee-Object -Append $report | Out-Host }
+function B64([string]$text) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)) }
 
 Log '== BASELINE (standard user logon)'
 Log (Describe $PID 'driver')
@@ -89,7 +90,7 @@ foreach ($rep in 1..3) {
     while ((Get-Date) -lt $deadline -and -not (Get-ChildItem $env:TEMP -Filter 'StremioSetup*.exe' -ErrorAction SilentlyContinue)) { Start-Sleep 1 }
     Log "U$rep downloaded: $((Get-ChildItem $env:TEMP -Filter 'StremioSetup*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName)"
     Start-Sleep 5
-    Log "U$rep $(& $Node "$PSScriptRoot\cdp.mjs" '["autoupdater-notif-clicked"]')"
+    Log "U$rep $(& $Node "$PSScriptRoot\cdp.mjs" (B64 '["autoupdater-notif-clicked"]'))"
     $setupPid = WaitProcess 'StremioSetup-v5.0.26_x64.exe' 30
     if ($setupPid) { Log (Describe $setupPid "U$rep INSTALLER") }
     $tmp = WaitProcess 'StremioSetup-v5.0.26_x64.tmp' 20
@@ -107,7 +108,7 @@ foreach ($rep in 1..3) {
     Start-Process -FilePath $dev
     Measure-Shell "X-medium#$rep" | Out-Null
     Start-Sleep 12
-    Log "X-medium#$rep $(& $Node "$PSScriptRoot\cdp.mjs" ('["play-external",' + (ConvertTo-Json $m3u) + ']'))"
+    Log "X-medium#$rep $(& $Node "$PSScriptRoot\cdp.mjs" (B64 ('["play-external",' + (ConvertTo-Json $m3u) + ']')))"
     $probe = WaitProcess 'm3uprobe.exe' 20
     if ($probe) { Log (Describe $probe "X-medium#$rep PLAYER") } else { Log "X-medium#$rep external player did not start" }
 }

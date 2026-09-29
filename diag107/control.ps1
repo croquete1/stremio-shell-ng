@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Continue'
 . "$PSScriptRoot\tok.ps1"
 $report = 'C:\diag\report.txt'
 function Log([string]$line) { $line | Tee-Object -Append $report | Out-Host }
+function B64([string]$text) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)) }
 
 function Measure-Shell([string]$Tag) {
     $shell = WaitProcess 'stremio-shell-ng.exe' 40
@@ -35,7 +36,7 @@ foreach ($rep in 1..3) {
     Start-Process -FilePath $dev
     Measure-Shell "X-high#$rep"
     Start-Sleep 12
-    Log "X-high#$rep $(& $Node "$PSScriptRoot\cdp.mjs" ('["play-external",' + (ConvertTo-Json $m3u) + ']'))"
+    Log "X-high#$rep $(& $Node "$PSScriptRoot\cdp.mjs" (B64 ('["play-external",' + (ConvertTo-Json $m3u) + ']')))"
     $probe = WaitProcess 'm3uprobe.exe' 20
     if ($probe) { Log (Describe $probe "X-high#$rep PLAYER") } else { Log "X-high#$rep external player did not start" }
 }
