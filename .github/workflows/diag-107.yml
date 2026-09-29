@@ -54,7 +54,7 @@ jobs:
           Copy-Item target\x86_64-pc-windows-msvc\release\stremio-shell-ng.exe, libmpv-2.dll, server.js, bin\* C:\devapp\
           git checkout -- $f
       - name: Local update endpoint and .m3u probe handler
-        shell: pwsh
+        shell: powershell
         run: |
           $hash = (Get-FileHash C:\diag\upd\StremioSetup-v5.0.26_x64.exe -Algorithm SHA256).Hash.ToLower()
           '{"version":"5.0.26","versionDesc":"http://127.0.0.1:8001/desc.json"}' | Set-Content C:\diag\upd\update.json
