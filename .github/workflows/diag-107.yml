@@ -1,0 +1,68 @@
+# Diagnostic only (fork): shell-ng#107 process integrity across launch, installer, updater and external player paths.
+name: diag-107
+
+on:
+  push:
+    branches:
+      - diag/107-integrity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Build shell (release, unchanged source) and installer
+        shell: pwsh
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc 2>&1 | Select-Object -Last 2
+          choco install innosetup -y --no-progress | Select-Object -Last 1
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q "setup\Stremio.iss"
+          Get-ChildItem StremioSetup*.exe | Format-Table Name, Length
+          New-Item -ItemType Directory -Force C:\diag\upd | Out-Null
+          Copy-Item StremioSetup-v5.0.26_x64.exe C:\diag\upd\
+      - name: Build DevTools-enabled copy (only adds --remote-debugging-port, used to send IPC requests)
+        shell: pwsh
+        run: |
+          $f = 'src\stremio_app\stremio_wevbiew\wevbiew.rs'
+          (Get-Content $f -Raw).Replace('let webview_flags = "--autoplay-policy', 'let webview_flags = "--remote-debugging-port=9333 --autoplay-policy') | Set-Content -NoNewline $f
+          git diff --stat
+          cargo build --release --target x86_64-pc-windows-msvc 2>&1 | Select-Object -Last 1
+          New-Item -ItemType Directory -Force C:\devapp | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\stremio-shell-ng.exe, libmpv-2.dll, server.js, bin\* C:\devapp\
+          git checkout -- $f
+      - name: Local update endpoint and .m3u probe handler
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash C:\diag\upd\StremioSetup-v5.0.26_x64.exe -Algorithm SHA256).Hash.ToLower()
+          '{"version":"5.0.26","versionDesc":"http://127.0.0.1:8001/desc.json"}' | Set-Content C:\diag\upd\update.json
+          "{`"version`":`"5.0.26`",`"files`":[{`"url`":`"http://127.0.0.1:8001/StremioSetup-v5.0.26_x64.exe`",`"checksum`":`"$hash`",`"os`":`"windows`"}]}" | Set-Content C:\diag\upd\desc.json
+          Get-Content C:\diag\upd\desc.json
+          Add-Type -OutputAssembly C:\diag\m3uprobe.exe -OutputType ConsoleApplication -TypeDefinition 'public static class P { public static void Main() { System.Threading.Thread.Sleep(30000); } }'
+          New-Item -Force 'HKCU:\Software\Classes\.m3u' -Value 'Diag.m3u' | Out-Null
+          New-Item -Force 'HKCU:\Software\Classes\Diag.m3u\shell\open\command' -Value '"C:\diag\m3uprobe.exe" "%1"' | Out-Null
+      - name: Integrity matrix
+        shell: powershell
+        run: |
+          $server = Start-Process python -ArgumentList '-m','http.server','8001','--directory','C:\diag\upd' -PassThru -WindowStyle Hidden
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File diag107\run.ps1 -Setup C:\diag\upd\StremioSetup-v5.0.26_x64.exe -DevApp C:\devapp
+          Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-107
+          path: |
+            C:\diag\report.txt
+            C:\diag\setup-*.log
+            C:\diag\installed.manifest
