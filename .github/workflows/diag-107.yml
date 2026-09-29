@@ -73,10 +73,10 @@ jobs:
           icacls C:\diag /grant 'Users:(OI)(CI)M' /T /Q | Out-Null
           icacls C:\devapp /grant 'Users:(OI)(CI)M' /T /Q | Out-Null
           $credential = New-Object System.Management.Automation.PSCredential('diagstd', (ConvertTo-SecureString $password -AsPlainText -Force))
-          $std = Start-Process powershell.exe -Credential $credential -LoadUserProfile -WorkingDirectory C:\diag -PassThru -Wait -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\diag\scripts\run.ps1', '-Setup', 'C:\diag\upd\StremioSetup-v5.0.26_x64.exe', '-DevApp', 'C:\devapp', '-Node', $node)
+          # Launch/installer/updater/High-control cells completed in runs 36576215710 and 36578718753; this run repeats only the external player control.
+          $std = Start-Process powershell.exe -Credential $credential -LoadUserProfile -WorkingDirectory C:\diag -PassThru -Wait -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\diag\scripts\ext.ps1', '-Mode', 'medium', '-DevApp', 'C:\devapp', '-Node', $node)
           "standard-user driver exit code: $($std.ExitCode)"
-          $exe = 'C:\Users\diagstd\AppData\Local\Programs\Stremio\stremio-shell-ng.exe'
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\diag\scripts\control.ps1 -Exe $exe -DevApp C:\devapp -Node $node
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\diag\scripts\ext.ps1 -Mode high -DevApp C:\devapp -Node $node
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
           Get-Content C:\diag\report.txt
       - uses: actions/upload-artifact@v4
