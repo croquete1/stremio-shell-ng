@@ -27,6 +27,19 @@ const APPCOMMAND_MEDIA_PLAY: u32 = 46;
 const APPCOMMAND_MEDIA_PAUSE: u32 = 47;
 const VK_F: u32 = b'F' as u32;
 
+
+// DIAGNOSTIC ONLY (stremio-bugs#2827 reproduction): log handler activity, never launch a browser.
+fn diag_log(message: String) {
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("diag2827.log")) {
+        let _ = writeln!(file, "{:?} {}", std::time::SystemTime::now(), message);
+    }
+}
+fn diag_open(url: String) -> std::io::Result<()> {
+    diag_log(format!("open::that {url}"));
+    Ok(())
+}
+
 #[derive(Default)]
 pub struct WebView {
     endpoint: Rc<RefCell<Option<String>>>,
@@ -162,8 +175,9 @@ impl PartialUi for WebView {
                     // Handle window.open and href
                     webview.add_new_window_requested(move |_webview, event| {
                         if let Ok(uri) = event.get_uri() {
+                            diag_log(format!("h1 new_window uri={uri} handled_before={:?} user={:?}", event.get_handled(), event.get_is_user_initiated()));
                             if let Some(final_url) = safe_url(&uri) {
-                                if let Err(e) = open::that(final_url) {
+                                if let Err(e) = diag_open(final_url) {
                                     eprintln!("Failed to open URL: {e}");
                                 }
                             }
@@ -175,10 +189,11 @@ impl PartialUi for WebView {
                     let navigation_endpoint = endpoint.clone();
                     webview.add_navigation_starting(move |_webview, event| {
                         let uri = event.get_uri()?;
+                        diag_log(format!("nav uri={uri}"));
                         if !same_origin(&trusted_origin(&navigation_endpoint), &uri) {
                             event.put_cancel(true)?;
                             if let Some(final_url) = safe_url(&uri) {
-                                if let Err(e) = open::that(final_url) {
+                                if let Err(e) = diag_open(final_url) {
                                     eprintln!("Failed to open URL: {e}");
                                 }
                             }
@@ -199,9 +214,11 @@ impl PartialUi for WebView {
                             Ok(())
                         }).expect("Cannot add web message received");
                         webview.add_new_window_requested(move |_w, msg| {
+                            diag_log(format!("h2 new_window uri={:?} handled_before={:?}", msg.get_uri(), msg.get_handled()));
                             if let Some(file) = msg.get_uri().ok().and_then(|str| {decode(str.as_str()).ok().map(Cow::into_owned)}) {
                                 tx_drag_drop.send(ipc::RPCResponse::response_message(Some(json!(["dragdrop" ,[file]])))).ok();
                                 msg.put_handled(true).ok();
+                                diag_log(format!("h2 dragdrop sent file={file}"));
                             }
                             Ok(())
                         }).expect("Cannot add D&D handler");

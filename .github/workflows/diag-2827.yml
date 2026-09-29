@@ -1,0 +1,71 @@
+# Diagnostic only (fork): reproduce stremio-bugs#2827 with a real OLE file drop onto shell-ng.
+name: diag-2827
+
+on:
+  push:
+    branches:
+      - diag/2827-drop-repro
+  workflow_dispatch:
+    inputs:
+      variants:
+        default: '["baseline"]'
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variants || '["baseline"]') }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Apply fix under test
+        if: matrix.variant == 'fix'
+        shell: bash
+        run: git apply --whitespace=nowarn diag/fix.patch && git diff --stat
+      - name: Build
+        shell: bash
+        run: |
+          cargo build --release 2>&1 | tail -2
+          cp bin/* server.js libmpv-2.dll target/release/
+          ls target/release/*.exe
+      - name: Test media and subtitle
+        shell: bash
+        run: |
+          mkdir -p media
+          target/release/ffmpeg.exe -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=25 -f lavfi -i sine=frequency=440 -t 120 -c:v mpeg4 -q:v 5 -c:a aac media/test.mp4
+          mkdir -p "$RUNNER_TEMP/Test User"
+          printf '1\r\n00:00:01,000 --> 00:00:30,000\r\nDiagnostic subtitle line\r\n\r\n2\r\n00:00:31,000 --> 00:01:00,000\r\nSecond line\r\n' > "$RUNNER_TEMP/Test User/legenda ção.srt"
+          ls -la media "$RUNNER_TEMP/Test User"
+      - name: Run matrix
+        shell: pwsh
+        run: |
+          $server = Start-Process python -ArgumentList '-m','http.server','8000','--directory','media' -PassThru
+          $stream = '{"url":"http://127.0.0.1:8000/test.mp4","name":"diag"}'
+          $hash = python -c "import base64,zlib,urllib.parse,sys; s=sys.argv[1].encode(); print('#/player/'+urllib.parse.quote(base64.b64encode(zlib.compress(s,0)).decode(),safe=''))" $stream
+          $srt = Join-Path $env:RUNNER_TEMP 'Test User\legenda ção.srt'
+          $exe = (Resolve-Path target\release\stremio-shell-ng.exe).Path
+          foreach ($rep in 1..3) {
+            foreach ($surface in @('board', 'player')) {
+              pwsh -File diag\run.ps1 -Exe $exe -Surface $surface -Label "${{ matrix.variant }}-$surface-$rep" -PlayerHash $hash -Srt $srt
+            }
+          }
+          pwsh -File diag\run.ps1 -Exe $exe -Surface picker -Label "${{ matrix.variant }}-picker-1" -PlayerHash $hash -Srt $srt
+          pwsh -File diag\run.ps1 -Exe $exe -Surface links -Label "${{ matrix.variant }}-links-1" -PlayerHash $hash -Srt $srt
+          Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-2827-${{ matrix.variant }}
+          path: out
