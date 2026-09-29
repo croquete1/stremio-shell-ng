@@ -28,7 +28,18 @@ jobs:
         run: |
           cargo build --release --target x86_64-pc-windows-msvc 2>&1 | Select-Object -Last 2
           choco install innosetup -y --no-progress | Select-Object -Last 1
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q "setup\Stremio.iss"
+          $is = 'C:\Program Files (x86)\Inno Setup 6'
+          # Diagnostic build only: provide language files missing from this Inno Setup install (installer wording only).
+          $names = Select-String -Path setup\Stremio.iss -Pattern 'compiler:Languages\\([^"]+\.isl)' | ForEach-Object { $_.Matches[0].Groups[1].Value }
+          foreach ($name in $names) {
+            $dest = Join-Path "$is\Languages" $name
+            if (-not (Test-Path $dest)) {
+              $alt = Join-Path "$is\Languages\Unofficial" (Split-Path $name -Leaf)
+              if (Test-Path $alt) { Copy-Item $alt $dest } else { Copy-Item "$is\Default.isl" $dest }
+              "provided missing $name"
+            }
+          }
+          & "$is\ISCC.exe" /Q "setup\Stremio.iss"
           Get-ChildItem StremioSetup*.exe | Format-Table Name, Length
           New-Item -ItemType Directory -Force C:\diag\upd | Out-Null
           Copy-Item StremioSetup-v5.0.26_x64.exe C:\diag\upd\
